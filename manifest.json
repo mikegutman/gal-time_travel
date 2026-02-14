@@ -1,0 +1,12 @@
+{
+  "name": "מסע בזמן",
+  "short_name": "מסע בזמן",
+  "description": "משחק פלטפורמה — מסע בזמן",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0f172a",
+  "theme_color": "#f59e0b",
+  "lang": "he",
+  "dir": "rtl"
+}
