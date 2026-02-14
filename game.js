@@ -437,24 +437,28 @@
     const h = window.innerHeight;
     canvas.width = w;
     canvas.height = h;
-    const narrow = w < h;
-    if (narrow) {
+
+    // Scale to fill screen height so the player and elements are always
+    // a consistent percentage of the viewport.  The camera already scrolls
+    // horizontally, so we only ever show a slice of the world — no need
+    // to cram all 3200 units into the width.
+    scale = h / WORLD.height;
+
+    // Clamp: at least 0.45 (small mobiles) and at most 2.5 (huge monitors)
+    scale = Math.max(0.45, Math.min(2.5, scale));
+
+    // Visible world width in world units
+    const viewW = w / scale;
+
+    // If the visible slice is wider than the whole world, shrink scale so
+    // the world fills the width instead (very wide / short viewport)
+    if (viewW > WORLD.width) {
       scale = w / WORLD.width;
-      if (isTouchDevice) scale = Math.max(0.4, scale);
-      offsetX = 0;
-      offsetY = (h - WORLD.height * scale) / 2;
-      document.documentElement.style.setProperty('--game-scale', String(scale));
-    } else {
-      let fitScale = Math.min(w / WORLD.width, h / WORLD.height);
-      if (isTouchDevice) {
-        scale = Math.max(0.4, fitScale);
-      } else {
-        scale = fitScale;
-      }
-    offsetX = (w - WORLD.width * scale) / 2;
-    offsetY = (h - WORLD.height * scale) / 2;
-    document.documentElement.style.setProperty('--game-scale', String(scale));
     }
+
+    offsetX = 0;
+    offsetY = Math.max(0, (h - WORLD.height * scale) / 2);
+    document.documentElement.style.setProperty('--game-scale', String(scale));
     updateRotatePrompt();
   }
 
@@ -470,14 +474,14 @@
 
   function worldToScreen(x, y) {
     return {
-      x: offsetX + x * scale,
-      y: offsetY + y * scale,
+      x: x,
+      y: y,
     };
   }
 
   function screenToWorld(sx, sy) {
     return {
-      x: (sx - offsetX) / scale,
+      x: (sx - (offsetX - cameraX * scale)) / scale,
       y: (sy - offsetY) / scale,
     };
   }
@@ -938,23 +942,22 @@
     const pal = THEME_PLATFORMS[theme] || THEME_PLATFORMS.desert;
     const left = camX - 100;
     const right = camX + (canvas.width / scale) + 100;
+    const lw = Math.max(0.5, 2 / scale);
     platforms.forEach((p) => {
       if (p.x + p.w < left || p.x > right) return;
       const s = worldToScreen(p.x, p.y);
-      const sw = p.w * scale;
-      const sh = p.h * scale;
-      const grad = ctx.createLinearGradient(s.x, s.y, s.x + sw, s.y + sh);
+      const grad = ctx.createLinearGradient(s.x, s.y, s.x + p.w, s.y + p.h);
       grad.addColorStop(0, pal.grad[0]);
       grad.addColorStop(0.4, pal.grad[1]);
       grad.addColorStop(0.7, pal.grad[2]);
       grad.addColorStop(1, pal.grad[3]);
       ctx.fillStyle = grad;
-      ctx.fillRect(s.x, s.y, sw, sh);
+      ctx.fillRect(s.x, s.y, p.w, p.h);
       ctx.strokeStyle = pal.stroke;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(s.x, s.y, sw, sh);
+      ctx.lineWidth = lw;
+      ctx.strokeRect(s.x, s.y, p.w, p.h);
       ctx.fillStyle = pal.top;
-      ctx.fillRect(s.x, s.y, sw, Math.min(10 * scale, sh * 0.25));
+      ctx.fillRect(s.x, s.y, p.w, Math.min(10, p.h * 0.25));
     });
   }
 
@@ -965,7 +968,7 @@
       if (g.collected) return;
       if (g.x + g.r * 2 < left || g.x > right) return;
       const s = worldToScreen(g.x + g.r, g.y + g.r);
-      const r = g.r * scale;
+      const r = g.r;
       const pulse = 1 + Math.sin(g.anim) * 0.1;
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -979,7 +982,7 @@
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(254,240,138,0.8)';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = Math.max(0.5, 2 / scale);
       ctx.stroke();
       ctx.restore();
     });
@@ -1004,6 +1007,7 @@
   function drawTrophies(camX) {
     const left = camX - 60;
     const right = camX + (canvas.width / scale) + 60;
+    const lw = Math.max(0.5, 2 / scale);
     trophies.forEach((t) => {
       if (t.collected) return;
       if (t.x + t.w < left || t.x > right) return;
@@ -1013,7 +1017,7 @@
       const h = t.h;
       ctx.fillStyle = '#fbbf24';
       ctx.strokeStyle = '#b45309';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = lw;
       ctx.beginPath();
       ctx.moveTo(x - w * 0.4, y - h * 0.3);
       ctx.lineTo(x + w * 0.4, y - h * 0.3);
@@ -1051,43 +1055,44 @@
       if (e.x + e.w < left || e.x > right) return;
       const s = worldToScreen(e.x + e.w / 2, e.y + e.h / 2);
       const isMonster = e.isMonster;
+      const lw = Math.max(0.5, 2 / scale);
       if (isMonster) {
-        const rw = e.w * scale * 0.6;
-        const rh = e.h * scale * 0.6;
+        const rw = e.w * 0.6;
+        const rh = e.h * 0.6;
         ctx.fillStyle = MONSTER_STYLE.fill;
         ctx.strokeStyle = MONSTER_STYLE.stroke;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = Math.max(0.5, 2.5 / scale);
         ctx.beginPath();
         ctx.roundRect ? ctx.roundRect(s.x - rw, s.y - rh * 0.5, rw * 2, rh * 1.4, 8) : ctx.rect(s.x - rw, s.y - rh * 0.5, rw * 2, rh * 1.4);
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = MONSTER_STYLE.fillDark;
         ctx.beginPath();
-        ctx.arc(s.x - rw * 0.4, s.y - rh * 0.2, 4 * scale, 0, Math.PI * 2);
-        ctx.arc(s.x + rw * 0.4, s.y - rh * 0.2, 4 * scale, 0, Math.PI * 2);
+        ctx.arc(s.x - rw * 0.4, s.y - rh * 0.2, 4, 0, Math.PI * 2);
+        ctx.arc(s.x + rw * 0.4, s.y - rh * 0.2, 4, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = MONSTER_STYLE.eye;
         ctx.beginPath();
-        ctx.arc(s.x - rw * 0.35, s.y - rh * 0.25, 2.5 * scale, 0, Math.PI * 2);
-        ctx.arc(s.x + rw * 0.35, s.y - rh * 0.25, 2.5 * scale, 0, Math.PI * 2);
+        ctx.arc(s.x - rw * 0.35, s.y - rh * 0.25, 2.5, 0, Math.PI * 2);
+        ctx.arc(s.x + rw * 0.35, s.y - rh * 0.25, 2.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = MONSTER_STYLE.spike;
         for (let i = -1; i <= 1; i++) {
           ctx.beginPath();
           ctx.moveTo(s.x + i * rw * 0.5, s.y - rh * 0.6);
-          ctx.lineTo(s.x + i * rw * 0.5 - 3 * scale, s.y - rh * 0.95);
-          ctx.lineTo(s.x + i * rw * 0.5 + 3 * scale, s.y - rh * 0.95);
+          ctx.lineTo(s.x + i * rw * 0.5 - 3, s.y - rh * 0.95);
+          ctx.lineTo(s.x + i * rw * 0.5 + 3, s.y - rh * 0.95);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
         }
         const hearts = e.lives !== undefined ? e.lives : 1;
         for (let h = 0; h < hearts; h++) {
-          const hx = s.x - (hearts - 1) * 6 * scale * 0.5 + h * 6 * scale;
+          const hx = s.x - (hearts - 1) * 3 + h * 6;
           const hy = s.y - rh * 1.1;
           ctx.fillStyle = '#f43f5e';
           ctx.beginPath();
-          ctx.arc(hx, hy, 3 * scale, 0, Math.PI * 2);
+          ctx.arc(hx, hy, 3, 0, Math.PI * 2);
           ctx.fill();
         }
         return;
@@ -1097,22 +1102,22 @@
       const stroke = isShooter ? SHOOTER_ENEMY.stroke : pal.stroke;
       ctx.fillStyle = fill;
       ctx.strokeStyle = stroke;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = lw;
       ctx.beginPath();
-      ctx.ellipse(s.x, s.y, e.w * scale * 0.5, e.h * scale * 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(s.x, s.y, e.w * 0.5, e.h * 0.5, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       if (isShooter) {
         const dir = e.vx > 0 ? 1 : -1;
         ctx.fillStyle = '#4c1d95';
-        ctx.fillRect(s.x + dir * (e.w * scale * 0.35), s.y - 3 * scale, dir * (8 * scale), 6 * scale);
+        ctx.fillRect(s.x + dir * (e.w * 0.35), s.y - 3, dir * 8, 6);
         ctx.strokeStyle = '#5b21b6';
-        ctx.strokeRect(s.x + dir * (e.w * scale * 0.35), s.y - 3 * scale, dir * (8 * scale), 6 * scale);
+        ctx.strokeRect(s.x + dir * (e.w * 0.35), s.y - 3, dir * 8, 6);
       }
       ctx.fillStyle = isShooter ? SHOOTER_ENEMY.eyeFill : '#1c1917';
       ctx.beginPath();
-      ctx.arc(s.x - 4 * scale, s.y - 2 * scale, 3 * scale, 0, Math.PI * 2);
-      ctx.arc(s.x + 4 * scale, s.y - 2 * scale, 3 * scale, 0, Math.PI * 2);
+      ctx.arc(s.x - 4, s.y - 2, 3, 0, Math.PI * 2);
+      ctx.arc(s.x + 4, s.y - 2, 3, 0, Math.PI * 2);
       ctx.fill();
     });
   }
@@ -1120,10 +1125,11 @@
   function drawEnemyProjectiles(camX) {
     const left = camX - 40;
     const right = camX + (canvas.width / scale) + 40;
+    const lw = Math.max(0.5, 2 / scale);
     enemyProjectiles.forEach((ep) => {
       if (ep.x + ep.r < left || ep.x - ep.r > right) return;
       const s = worldToScreen(ep.x, ep.y);
-      const r = ep.r * scale;
+      const r = ep.r;
       const gradient = ctx.createRadialGradient(s.x - r * 0.3, s.y - r * 0.3, 0, s.x, s.y, r);
       gradient.addColorStop(0, '#fca5a5');
       gradient.addColorStop(0.6, '#ef4444');
@@ -1133,7 +1139,7 @@
       ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(185,28,28,0.9)';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = lw;
       ctx.stroke();
     });
   }
@@ -1141,10 +1147,11 @@
   function drawProjectiles(camX) {
     const left = camX - 40;
     const right = camX + (canvas.width / scale) + 40;
+    const lw = Math.max(0.5, 2 / scale);
     projectiles.forEach((p) => {
       if (p.x + p.r < left || p.x - p.r > right) return;
       const s = worldToScreen(p.x, p.y);
-      const r = p.r * scale;
+      const r = p.r;
       const gradient = ctx.createRadialGradient(s.x - r * 0.3, s.y - r * 0.3, 0, s.x, s.y, r);
       gradient.addColorStop(0, '#fef08a');
       gradient.addColorStop(0.6, '#facc15');
@@ -1154,15 +1161,15 @@
       ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = 'rgba(254,240,138,0.9)';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = lw;
       ctx.stroke();
     });
   }
 
   function drawGoal(camX) {
     const s = worldToScreen(goal.x, goal.y);
-    const sw = goal.w * scale;
-    const sh = goal.h * scale;
+    const sw = goal.w;
+    const sh = goal.h;
     const poleGrad = ctx.createLinearGradient(s.x, s.y, s.x + sw, s.y);
     poleGrad.addColorStop(0, '#78716c');
     poleGrad.addColorStop(0.5, '#a8a29e');
@@ -1172,14 +1179,14 @@
     ctx.fillStyle = '#22c55e';
     ctx.fillRect(s.x, s.y, sw, sh * 0.35);
     ctx.strokeStyle = '#15803d';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(0.5, 2 / scale);
     ctx.strokeRect(s.x, s.y, sw, sh * 0.35);
     ctx.fillStyle = '#fbbf24';
     ctx.beginPath();
-    ctx.moveTo(s.x + sw / 2, s.y + 18 * scale);
-    ctx.lineTo(s.x + sw / 2 - 10 * scale, s.y + 42 * scale);
-    ctx.lineTo(s.x + sw / 2, s.y + 35 * scale);
-    ctx.lineTo(s.x + sw / 2 + 10 * scale, s.y + 42 * scale);
+    ctx.moveTo(s.x + sw / 2, s.y + 18);
+    ctx.lineTo(s.x + sw / 2 - 10, s.y + 42);
+    ctx.lineTo(s.x + sw / 2, s.y + 35);
+    ctx.lineTo(s.x + sw / 2 + 10, s.y + 42);
     ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = '#b45309';
@@ -1198,7 +1205,7 @@
     ctx.globalAlpha = 0.45;
     ctx.strokeStyle = 'rgba(239, 68, 68, 0.75)';
     ctx.fillStyle = 'rgba(244, 63, 94, 0.7)';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = Math.max(0.5, 1.5 / scale);
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(ox, oy);
@@ -1227,12 +1234,12 @@
       ctx.globalAlpha = 0.6;
     }
 
-    const drawW = player.w * scale;
-    const drawH = player.h * scale;
+    const drawW = player.w;
+    const drawH = player.h;
     const useAvatar = avatarCanvas && avatarImage.complete && avatarImage.naturalWidth > 0;
     const isWalking = player.grounded && Math.abs(player.vx) > 0.3;
     const bounce = player.grounded ? Math.sin(player.animTime) * (isWalking ? 2.5 : 1.5) : 0;
-    const stepWobble = useAvatar && isWalking ? Math.sin(player.animTime * 2) * 2.5 * scale : 0;
+    const stepWobble = useAvatar && isWalking ? Math.sin(player.animTime * 2) * 2.5 : 0;
     if (useAvatar) {
       const cx = s.x + drawW / 2 + stepWobble;
       const cy = s.y + drawH / 2 + bounce;
@@ -1265,7 +1272,7 @@
     ctx.fillStyle = '#f43f5e';
     ctx.fill();
     ctx.strokeStyle = '#be123c';
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = Math.max(0.3, 0.8 / scale);
     ctx.stroke();
   }
 
@@ -1291,19 +1298,19 @@
     const phrase = SPEECH_BUBBLE_PHRASES[currentSpeechPhrase];
     const centerX = player.x + player.w / 2;
     const bubbleY = player.y - 58;
-    const padding = 8 * scale;
-    const lineHeight = 14 * scale;
-    ctx.font = (12 * scale) + 'px "Heebo", "Fredoka", sans-serif';
+    const padding = 8;
+    const lineHeight = 14;
+    ctx.font = '12px "Heebo", "Fredoka", sans-serif';
     const metrics = ctx.measureText(phrase);
     const textW = metrics.width;
-    const bubbleW = Math.max(textW + padding * 2, 40 * scale);
+    const bubbleW = Math.max(textW + padding * 2, 40);
     const bubbleH = lineHeight + padding * 2;
     const bx = centerX - bubbleW / 2;
     const by = bubbleY - bubbleH;
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
     ctx.strokeStyle = 'rgba(30, 41, 59, 0.5)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.max(0.5, 2 / scale);
     ctx.beginPath();
     if (ctx.roundRect) {
       ctx.roundRect(bx, by, bubbleW, bubbleH, 10);
@@ -1345,36 +1352,37 @@
     const legR = player.grounded ? -runPhase : -0.2;
     const armSwing = player.grounded && Math.abs(player.vx) > 0.5 ? Math.sin(player.animTime * 2) * 0.5 : 0;
     const cx = s.x + drawW / 2;
-    const headY = s.y + 14 * scale + bounce;
-    const bodyY = s.y + 28 * scale + bounce;
+    const headY = s.y + 14 + bounce;
+    const bodyY = s.y + 28 + bounce;
     const outfit = OUTFITS[selectedOutfit] || OUTFITS.classic;
+    const lw = Math.max(0.5, 2 / scale);
 
     ctx.save();
     ctx.translate(cx, headY);
     ctx.scale(player.facing, 1);
     ctx.fillStyle = outfit.head;
     ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = lw;
     ctx.beginPath();
-    ctx.arc(0, 0, 14 * scale, 0, Math.PI * 2);
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = '#0f172a';
-    const eyeY = -2 * scale;
+    const eyeY = -2;
     ctx.beginPath();
-    ctx.arc(-5 * scale, eyeY, 4 * scale, 0, Math.PI * 2);
-    ctx.arc(5 * scale, eyeY, 4 * scale, 0, Math.PI * 2);
+    ctx.arc(-5, eyeY, 4, 0, Math.PI * 2);
+    ctx.arc(5, eyeY, 4, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(-4 * scale, eyeY - 1 * scale, 1.5 * scale, 0, Math.PI * 2);
-    ctx.arc(6 * scale, eyeY - 1 * scale, 1.5 * scale, 0, Math.PI * 2);
+    ctx.arc(-4, eyeY - 1, 1.5, 0, Math.PI * 2);
+    ctx.arc(6, eyeY - 1, 1.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = outfit.antenna;
     ctx.beginPath();
-    ctx.moveTo(0, -14 * scale);
-    ctx.lineTo(-3 * scale, -22 * scale);
-    ctx.lineTo(3 * scale, -22 * scale);
+    ctx.moveTo(0, -14);
+    ctx.lineTo(-3, -22);
+    ctx.lineTo(3, -22);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
@@ -1385,8 +1393,8 @@
     ctx.scale(player.facing, 1);
     ctx.fillStyle = outfit.body;
     ctx.beginPath();
-    const bw = 24 * scale;
-    const bh = 18 * scale;
+    const bw = 24;
+    const bh = 18;
     if (ctx.roundRect) {
       ctx.roundRect(-bw / 2, 0, bw, bh, 6);
     } else {
@@ -1396,19 +1404,19 @@
     ctx.strokeStyle = '#94a3b8';
     ctx.stroke();
     ctx.strokeStyle = '#64748b';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = Math.max(0.5, 5 / scale);
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(-14 * scale, 6 * scale);
-    ctx.lineTo(-24 * scale + armSwing * 8 * scale, 10 * scale);
-    ctx.moveTo(14 * scale, 6 * scale);
-    ctx.lineTo(24 * scale - armSwing * 8 * scale, 10 * scale);
+    ctx.moveTo(-14, 6);
+    ctx.lineTo(-24 + armSwing * 8, 10);
+    ctx.moveTo(14, 6);
+    ctx.lineTo(24 - armSwing * 8, 10);
     ctx.stroke();
     ctx.beginPath();
-    ctx.moveTo(-8 * scale, 18 * scale);
-    ctx.lineTo(-12 * scale + legL * 10 * scale, 28 * scale);
-    ctx.moveTo(8 * scale, 18 * scale);
-    ctx.lineTo(12 * scale + legR * 10 * scale, 28 * scale);
+    ctx.moveTo(-8, 18);
+    ctx.lineTo(-12 + legL * 10, 28);
+    ctx.moveTo(8, 18);
+    ctx.lineTo(12 + legR * 10, 28);
     ctx.stroke();
     ctx.restore();
   }
@@ -1513,9 +1521,11 @@
       updateEnemyProjectiles(dt);
       updateProjectiles(dt);
       updatePlayer(dt);
-      cameraX = player.x - 180;
+      const viewW = canvas.width / scale;
+      const camLead = viewW * 0.25;           // player 25% from left edge
+      cameraX = player.x - camLead;
       if (cameraX < 0) cameraX = 0;
-      if (cameraX > WORLD.width - canvas.width / scale) cameraX = WORLD.width - canvas.width / scale;
+      if (cameraX > WORLD.width - viewW) cameraX = WORLD.width - viewW;
     }
 
     ctx.save();
